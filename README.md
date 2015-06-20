@@ -23,3 +23,5 @@ in `opaqueserver.apache-conf`.
 The main code repo for opaque_server 
 has moved to the `github.com/openwebwork` 
 site from `github.com/mgage`. 
+
+The current stable code for this feature is now in the branch `master` on   `github.com/openwebwork`.
