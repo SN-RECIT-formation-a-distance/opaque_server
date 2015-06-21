@@ -477,10 +477,10 @@ sub get_html {
 	my $ce = create_course_environment($submitteddata->{courseName});
 
     my $tbl = WeBWorK::Utils::AttemptsTable->new(
-		$answers,
+		$answers//{},
 		answersSubmitted       => $submitteddata->{submit},  # a submit button was pressed
-		answerOrder            => $answerOrder,
-		displayMode            => $ce->{pg}->{options}->{displayMode}//'images',
+		answerOrder            => $answerOrder//[],
+		displayMode            => $ce->{pg}->{options}->{displayMode}||'images',
 		imgGen                 => '',	
 		showAttemptPreviews    => 1,
 		showAttemptResults     => ($localstate eq 'attempt' or $localstate eq 'graded'),
@@ -623,7 +623,7 @@ sub renderOpaquePGProblem {
     my $problemFile = shift//'';
     my $formFields  = shift//'';
     my %args = ();
-    my $courseName = $formFields->{courseName}//'gage_course';
+    my $courseName = $formFields->{courseName}||'daemon_course';
     warn "rendering $problemFile in course $courseName \n";
  	$ce = create_course_environment($courseName);
  	$dbLayout = $ce->{dbLayout};	
