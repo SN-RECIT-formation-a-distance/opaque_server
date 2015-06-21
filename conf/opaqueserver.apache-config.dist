@@ -32,7 +32,7 @@ my $rpc_url = '/opaqueserver_rpc';
 my $files_url = '/opaqueserver_files';
 my $wsdl_url = '/opaqueserver_wsdl';
 
-my $courseName = 'gage_course';
+my $courseName = 'daemon_course';  #default course to use for library lookup
 
 #######################################################
 
@@ -107,11 +107,11 @@ print "OpaqueServer course name = $courseName\n";
  </Location>
  
 
-# <Location /opaqueserver_wsdl>
-#  	PerlHandler OpaqueServer::WSDL
-#     SetHandler perl-script
-#     PerlSetVar dispatch_to "OpaqueServer::WSDL"
-#     PerlSetVar options "compress_threshold => 10000"
-#     Order Allow,Deny
-#     Allow from All
-#  </Location>
+<Location /opaqueserver_wsdl>
+ 	PerlHandler OpaqueServer::WSDL
+    SetHandler perl-script
+    PerlSetVar dispatch_to "OpaqueServer::WSDL"
+    PerlSetVar options "compress_threshold => 10000"
+    Order Allow,Deny
+    Allow from All
+ </Location>
