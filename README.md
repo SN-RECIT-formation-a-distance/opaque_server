@@ -33,8 +33,10 @@ in `opaqueserver.apache-conf`.
 
          cpan Memory::Usage
 
-The main code repo for opaque_server 
-has moved to the `github.com/openwebwork` 
-site from `github.com/mgage`. 
+* The file `https://github.com/openwebwork/webwork2/blob/release-2.11/lib/WeBWorK/Utils/AttemptsTable.pm` is required for opaque_server.  This file is part of webwork2 branch release/2.11 and later, (also branch: devel).  You should be able to operate opaque_server along side webwork2 release/2.10 if you copy the AttemptsTable.pm file to the appropriate location. 
+* 
+This code repo for opaque_server 
+was moved to  `github.com/openwebwork` 
+site from `github.com/mgage`. The work on opaque_server at github.com/mgage has been frozen.
 
-The current stable code for this feature is now in the branch `master` on   `github.com/openwebwork`.
+
