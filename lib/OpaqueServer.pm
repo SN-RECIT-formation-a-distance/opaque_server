@@ -258,7 +258,7 @@ sub process {
 	# initialize the attempt number
 	$params->{try} = $params->{try}//-666;
 	# bump the attempt number if this is a submission
-	$params->{try}++ if defined( $params->{WWsubmit} ); # or defined( $params->{WWgrade} );
+	$params->{try}++ if defined( $params->{WWsubmit} ); # or defined( $params->{WWcorrectAns} );
 	# prepare return object 
 	my $return = OpaqueServer::ProcessReturn->new();
 	if (defined($params->{questionid} and $params->{questionid}=~/\.pg/i) ){
@@ -444,20 +444,20 @@ sub get_html {
 	#}
 	my $localstate = $submitteddata->{localstate}//'preview';
 	$localstate = 'attempt' if $localstate ne 'graded' and $submitteddata->{WWsubmit};
-	$localstate = 'graded'  if $submitteddata->{WWgrade};
+	$localstate = 'graded'  if $submitteddata->{WWcorrectAns};
 
 	my $previewDisabled   = ($localstate eq 'graded')?'disabled="disabled" ':'';
 	my $WWsubmitDisabled = ($localstate eq 'graded')?'disabled="disabled" ':'';
-    my $WWgradeDisabled =  ($localstate eq 'graded')?'disabled="disabled" ': '';
+    my $WWcorrectAnsDisabled =  ($localstate eq 'graded')?'disabled="disabled" ': '';
 	my $hiddendata = {
 		'try' => $try,
 		'questionid' => $submitteddata->{questionid},
 		'localstate' => $localstate, 
 		%$submitteddata,
 	};
-	$submitteddata->{finish}='Finish' if $submitteddata->{WWgrade};
+	$submitteddata->{finish}='Finish' if $submitteddata->{WWcorrectAns};
 	$submitteddata->{submit}='Submit' if $submitteddata->{preview} or 
-	$submitteddata->{WWsubmit} or $submitteddata->{WWgrade};
+	$submitteddata->{WWsubmit} or $submitteddata->{WWcorrectAns};
 	 my $filePath = $submitteddata->{questionid};
 	    $filePath =~ s/\_\_\_/\-/g;  # hand fact that - is replaced by ___ 3 underscores
         $filePath =~ s/\_\_/\//g; # handle fact that / must be replaced by __ 2 underscores
@@ -511,7 +511,7 @@ sub get_html {
         <h4>Actions</h4>
 		<p><input type="submit" name="%%IDPREFIX%%preview"  value="Preview" ' . $previewDisabled . '/> 
 		<input type="submit" name="%%IDPREFIX%%WWsubmit" value="Submit Attempt" ' . $WWsubmitDisabled . '/> 
-		<input type="submit" name="%%IDPREFIX%%WWgrade" value="Grade and Finish" ' . $WWgradeDisabled . '/>
+		<input type="submit" name="%%IDPREFIX%%WWcorrectAns" value="Grade and Finish" ' . $WWcorrectAnsDisabled . '/>
 		</p>
 		</div>';
 
