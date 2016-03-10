@@ -263,7 +263,7 @@ sub process {
 	my $return = OpaqueServer::ProcessReturn->new();
 	if (defined($params->{questionid} and $params->{questionid}=~/\.pg/i) ){
 		$return->{XHTML} = $self->get_html($questionSession, $params->{try}, $params);
-		warn "get_html finish params ", $params->{finish};
+		warn "get_html finish params. finish=", $params->{finish}//''," -finish=",$params->{'-finish'}//'';
 		# need questionid parameter to find source filepath
 	} else {
 		$return->{XHTML}=$self->get_html_original($questionSession, $params->{try}, $params);
@@ -442,22 +442,23 @@ sub get_html {
 	#if (substr($sessionid, 0, 3) eq 'ro-') {
 	#	$disabled = 'disabled="disabled" ';
 	#}
-	my $localstate = $submitteddata->{localstate}//'preview';
+	my $localstate = $submitteddata->{localstate}//'WWpreview';
 	$localstate = 'attempt' if $localstate ne 'graded' and $submitteddata->{WWsubmit};
 	$localstate = 'graded'  if $submitteddata->{WWcorrectAns};
 
-	my $previewDisabled   = ($localstate eq 'graded')?'disabled="disabled" ':'';
-	my $WWsubmitDisabled = ($localstate eq 'graded')?'disabled="disabled" ':'';
-    my $WWcorrectAnsDisabled =  ($localstate eq 'graded')?'disabled="disabled" ': '';
+	my $WWpreviewDisabled     = ($localstate eq 'graded')?'disabled="disabled" ':'';
+	my $WWsubmitDisabled      = ($localstate eq 'graded')?'disabled="disabled" ':'';
+	my $WWcorrectAnsDisabled  =  ($localstate eq 'graded')?'disabled="disabled" ': '';
+	$submitteddata->{finish}='Finish' if $submitteddata->{WWcorrectAns};
+	$submitteddata->{submit}='Submit' if $submitteddata->{WWpreview} or 
+	$submitteddata->{WWsubmit} or $submitteddata->{WWcorrectAns};
 	my $hiddendata = {
 		'try' => $try,
 		'questionid' => $submitteddata->{questionid},
 		'localstate' => $localstate, 
 		%$submitteddata,
 	};
-	$submitteddata->{finish}='Finish' if $submitteddata->{WWcorrectAns};
-	$submitteddata->{submit}='Submit' if $submitteddata->{preview} or 
-	$submitteddata->{WWsubmit} or $submitteddata->{WWcorrectAns};
+
 	 my $filePath = $submitteddata->{questionid};
 	    $filePath =~ s/\_\_\_/\-/g;  # hand fact that - is replaced by ___ 3 underscores
         $filePath =~ s/\_\_/\//g; # handle fact that / must be replaced by __ 2 underscores
@@ -488,18 +489,11 @@ sub get_html {
 		showMessages           => 1,
 		ce                     => $ce,
 	);
-	warn "attemptsTable is ", $tbl;
-	warn "tbl imgGen is ", $tbl->imgGen;
 	my $attemptResults = $tbl->answerTemplate();
 	# render equation images
 	$tbl->imgGen->render(refresh => 1) if $tbl->displayMode eq 'images';
 
-    my $output = '
-		<div class="local_testopaqueqe">
-		<h2>WeBWorK-Moodle Question type</h2><p> (Using Opaque question type)</p>
-		<p>This is the WeBWorK test Opaque engine  '  ." at $OpaqueServer::Host <br/>  sessionID ".
-		$sessionid . ' with question attempt ' . $try . 
-	    '</p><p>  </p>';
+    my $output = '<div class="local_testopaqueqe">';
 
 	foreach my $name (keys %$hiddendata)  {
 		$output .= '<input type="hidden" name="%%IDPREFIX%%' . $name .
@@ -507,34 +501,46 @@ sub get_html {
 	}
 	$output .= $attemptResults;
 	$output .= "\n<hr>\n". $pg->{body_text}."\n<hr>\n";
-	$output .= '
-        <h4>Actions</h4>
-		<p><input type="submit" name="%%IDPREFIX%%preview"  value="Preview" ' . $previewDisabled . '/> 
-		<input type="submit" name="%%IDPREFIX%%WWsubmit" value="Submit Attempt" ' . $WWsubmitDisabled . '/> 
-		<input type="submit" name="%%IDPREFIX%%WWcorrectAns" value="Grade and Finish" ' . $WWcorrectAnsDisabled . '/>
-		</p>
-		</div>';
+	$output .= join("\n",
+#        '<h4>Actions</h4>',
+		'<p>',
+		qq!<button type="submit" name="%%IDPREFIX%%WWpreview"  value=1  $WWpreviewDisabled>Preview Answer(s)</button> !,	
+		qq!<button type="submit" name="%%IDPREFIX%%WWsubmit" value=1  $WWsubmitDisabled >Submit Answer(s)</button> !,
+		qq!<button type="submit" name="%%IDPREFIX%%WWcorrectAns" value=1  $WWcorrectAnsDisabled>Grade and Finish</button>!,
+		'</p>',
+		'</div>',
+	);
 
-	$output .= '<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
-		<script>
-			$(document).ready(function(){
-				$( ".clickme" ).click(function() {
-				  $( this).next().slideToggle( "slow", function() {
-					// Animation complete.
-				  });
+		
+## diagonostic information
+my $showDebuggingData = 0;
+if ($showDebuggingData == 1) {
+	my $debuggingData= join("\n",
+		'<h2>WeBWorK-Moodle Question type</h2>',
+		'<br/>finish = '.$submitteddata->{'finish'}//'',
+		'<br/>-finish= '.$submitteddata->{'-finish'}//''."<br/>",
+		'<p> (Using Opaque question type)</p>',
+		qq!<p>This is the WeBWorK test Opaque engine at $OpaqueServer::Host <br/>!,
+		qq!sessionID $sessionid with question attempt $try!, 
+		qq!</p>!,
+		q!<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+			<script>
+				$(document).ready(function(){
+					$( ".clickme" ).click(function() {
+					  $( this).next().slideToggle( "slow", function() {
+						// Animation complete.
+					  });
+					});
+				   // jQuery methods go here...
 				});
-
-			   // jQuery methods go here...
-			});
-		</script>
-		<style>
-			.clickme {background-color: #ccccFF ;}
-		</style>';
-    $output .='<div class="clickme">
-  			Click here to show more details
-			</div>';
-	$output .='<div class="answer-details" style="display: none;">';
-	$output .='
+			</script>
+			<style>
+				.clickme {background-color: #ccccFF ;}
+			</style>!,
+		'<div class="clickme"> Click here to show more details</div>'
+	);
+	$debuggingData .='<div class="answer-details" style="display: none;">';
+	$debuggingData .='
 		<h3>Submitted data</h3>
 		<table>
 		<thead>
@@ -543,20 +549,30 @@ sub get_html {
 		<tbody>';
 
 	foreach my $name (keys %$hiddendata)  {
-		$output .= '<tr><th>' . $name . '</th><td>' . 
+		$debuggingData .= '<tr><th>' . $name . '</th><td>' . 
 		htmlspecialchars($hiddendata->{$name}) . "</td></tr>\n";
 	}
     my $computed_problem_seed  = $submitteddata->{'randomseed'} 
 	                     + 12637946 *($submitteddata->{'attempt'}) || 0;
-	$output .= '<tr><th>computed problem seed </td><td>' .
+	$debuggingData .= '<tr><th>computed problem seed </td><td>' .
 	         $computed_problem_seed . "</td></tr>\n";
-    $output .= '
+############### report input parameters
+# 	$debuggingData.='<tr><th colspan="2"> Parameters</th></tr>';
+# 		for my $key (keys %$submitteddata) {
+# 			$debuggingData .= "<tr><th>$key</th><td>".
+# 			htmlspecialchars($submitteddata->{$key})."</td></tr>\n";
+# 		}
+############### end report
+
+    $debuggingData .= '
 		</tbody>
 		</table>';
 
-	$output .= pretty_print($pg->{answers},'html',4); #  $pg->{body_text};
-	$output .= pretty_print($tbl,'html',4);
-	$output .= '</div>';
+	$debuggingData .= pretty_print($pg->{answers},'html',4); #  $pg->{body_text};
+	$debuggingData .= pretty_print($tbl,'html',4);
+	$debuggingData .= '</div>';
+	$output .= $debuggingData;
+}
 	return $output;
     
 }
