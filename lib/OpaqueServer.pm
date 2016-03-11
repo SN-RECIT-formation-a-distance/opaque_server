@@ -28,7 +28,9 @@ use LWP::Simple;
 
 #use OpaqueServer::GeneratorRequest;
 #use OpaqueServer::GeneratorResponse;
+use Memory::Usage;
 
+#opaque library
 use OpaqueServer::StartReturn;
 use OpaqueServer::ProcessReturn;
 
@@ -37,15 +39,15 @@ use OpaqueServer::Exception;
 use OpaqueServer::Results;
 use OpaqueServer::Score;
 
+#pg library
 use WeBWorK::PG::Translator;
 use WeBWorK::PG::ImageGenerator;
-use WeBWorK::Utils::AttemptsTable;
-
-use Memory::Usage;
-
 use PGUtil qw(pretty_print not_null);
-use WeBWorK::Utils::Tasks qw(fake_set fake_problem fake_user);   # may not be needed
 
+#webwork2 library
+use WeBWorK::Utils::AttemptsTable;
+use WeBWorK::Utils::Tasks qw(fake_set fake_problem fake_user);   # may not be needed
+use WeBWorK::Localize;
 use constant fakeSetName => "Undefined_Set";
 use constant fakeUserName => "Undefined_User";
 
@@ -53,9 +55,9 @@ use constant fakeUserName => "Undefined_User";
 
 use constant MAX_MARK => 1;
 
-our $DEBUG=0;
 our $memory_usage = Memory::Usage->new();
 
+our $showDebuggingData = 1;
 
 
 ####################################################################################
@@ -164,8 +166,7 @@ _RETURN              $OpaqueServer::StartReturn
 
 sub start {
     my $self = shift;
-	my ($questionid, $questionversion, $url, $initialParamNames, $initialParamValues,$cachedResources) = @_;
-	warn "\n\n##############################\nstart(): $questionid \n";
+	my ($questionid, $questionversion, $url, $initialParamNames, $initialParamValues,$cachedResources) = @_;	
 	#warn "question base url is $url\n";
 	# get course name
 	$url = $url//'';
@@ -175,52 +176,57 @@ sub start {
 	my $paramNames = ref($initialParamNames)? $initialParamNames:[];
 	my $paramValues = ref($initialParamValues)? $initialParamValues:[];
 	$self->handle_special_from_questionid($questionid, $questionversion, 'start');
+	# the above call does nothing for ordinary questions -- does do something for testing questions 
     # zip params into hash
 	my $initparams = array_combine($paramNames, $paramValues);
 	$initparams->{questionid} = $questionid;
 	$initparams->{courseName} = $courseName; #store courseName
+	
+	# use Tim Hunt's magic formula for creating the random seed:
+	# _randomseed is the constant 123456789 and attempt is incremented by 1
+	# incrementing by more than one helps some pseudo random number generators ????	
+	my $problem_seed  = $initparams->{'randomseed'} 
+	                     + 12637946 *($initparams->{'attempt'}) || 0;
+	$initparams->{computed_problem_seed}= $problem_seed; # update problem_seed. 
+	warn "\n\n##############################\nstart(): questionid: $questionid \n";
+	warn "#####\nparameters:\n";
+	foreach my $key (keys %$initparams) {
+		my $value = $initparams->{$key};
+		warn "$key => $value\n";
+	}
+	warn "end parameters\n##### \n";
+
+	
+	
 	# warn "course used for accessing questions is $courseName\n\n";
 	# create startReturn type and fill it
-		my $return = OpaqueServer::StartReturn->new(
+	my $return = OpaqueServer::StartReturn->new(
 			$questionid, $questionversion,
 	    	$initparams->{display_readonly}
-	    ); #readonly if this value is defined and 1
-	    if (defined($questionid) and $questionid=~/\.pg/i) {
-			$return->{XHTML} = $self->get_html($return->{questionSession}, 1, $initparams);
-			# need questionid parameter to find source filepath
-		} else {
-			$return->{XHTML}=$self->get_html_original($return->{questionSession}, 1, $initparams);
-		}
-		#$return->{XHTML} = $self->get_html($return->{questionSession}, 1, $initparams);
-		$return->{CSS} = $self->get_css();
-		$return->{progressInfo} = "Try 1";
-		$return->{questionSession}=  int(10**5*rand()); 
-        warn "set questionSession =  ",$return->{questionSession},"\n"; 
-		my $resource = OpaqueServer::Resource->make_from_file(
-                "$OpaqueServer::RootDir/pix/world.gif", 
-                'world.gif', 
-                'image/gif'
-        );
-        $return->addResource($resource);
+	); #readonly if this value is defined and 1
+	$return->{CSS} = $self->get_css();
+	$return->{progressInfo} = "Try 1";
+	$return->{questionSession}=  int(10**5*rand()); 
+	warn "set questionSession =  ",$return->{questionSession},"\n";
+	$initparams->{questionid} = $questionid; 
+	if (defined($questionid) and $questionid=~/\.pg/i) {
+	    warn "return text of question\n";
+	    my $PGscore;
+		($return->{XHTML},$PGscore) = $self->get_html($return->{questionSession}, 1, $initparams);
+		# need questionid parameter to find source filepath
+	} else {
+		$return->{XHTML}=$self->get_html_original($return->{questionSession}, 1, $initparams);
+	}
+	my $resource = OpaqueServer::Resource->make_from_file(
+			"$OpaqueServer::RootDir/pix/world.gif", 
+			'world.gif', 
+			'image/gif'
+	);
+	$return->addResource($resource);
 	# return start type
 	return $return;
 }
 
-
-########## utility subroutine -- zips two array refs into a hash ref #############
-sub array_combine {       #duplicates a php function -- not a method
-        my ($paramNames, $paramValues) = @_;
-		my $combinedHash = {};
-		my $length = (@$paramNames<@$paramValues)?@$paramValues:@$paramNames;
-		return () unless $length==@$paramValues and $length==@$paramNames;
-		my @paramValues = (ref($paramValues)=~/array/i)? @$paramValues:();
-		my @paramNames  = (ref($paramNames)=~/array/i)? @$paramNames:();
-		foreach my $i (1..$length) {
-		    my $key = (pop @$paramNames)//$i;
-			$combinedHash->{$key}= pop @$paramValues;
-		}
-		return $combinedHash;
-}
 
 # 
 #      * returns an object (the structure of the object is taken from an OpenMark question)
@@ -239,15 +245,20 @@ _FAULT       OpaqueServer::Exception
 _RETURN      $OpaqueServer::ProcessReturn
 =end WSDL
 =cut
-our $PGscore=0;
-our $showDebuggingData = 0;
 
 sub process {
 	my $self = shift;
 	my ($questionSession, $names, $values) = @_;
+	my $PGscore = 0;
     warn "\n\nprocess() with questionSession:  $questionSession\n";
      # zip params into hash
 	my $params = array_combine($names, $values);
+	# use Tim Hunt's magic formula for creating the random seed:
+	# _randomseed is the constant 123456789 and attempt is incremented by 1
+	# incrementing by more than one helps some pseudo random number generators ????	
+	my $problem_seed  = $params->{'randomseed'} 
+	                     + 12637946 *($params->{'attempt'}//0) || 0;
+	$params->{computed_problem_seed}= $problem_seed; # update problem_seed. 
 	
 ############### report input parameters
 		my $str = "";
@@ -270,9 +281,9 @@ sub process {
 	# prepare return object 
 	my $return = OpaqueServer::ProcessReturn->new();
 	if (defined($params->{questionid} and $params->{questionid}=~/\.pg/i) ){
-		$return->{XHTML} = $self->get_html($questionSession, $params->{try}, $params);
-		#warn "get_html finish params. \nfinish=", $params->{finish}//'',"\n -finish=",$params->{'-finish'}//'',"\n";
-		# need questionid parameter to find source filepath
+		warn "get_html finish params. \nfinish=", $params->{finish}//'',"\n -finish=",$params->{'-finish'}//'',"\n";
+		($return->{XHTML}, $PGscore) = $self->get_html($questionSession, $params->{try}, $params);
+				# need questionid parameter to find source filepath
 	} else {
 		$return->{XHTML}=$self->get_html_original($questionSession, $params->{try}, $params);
 	}
@@ -284,7 +295,7 @@ sub process {
                 'image/gif'
         )
     );
-     if (defined($params->{finish}) ) {
+    if (defined($params->{finish}) ) {
             #$return->{questionEnd} = 'true';
             $return->{results} = OpaqueServer::Results->new();
             $return->{results}->{questionLine} = 'Test Opaque question.';
@@ -293,22 +304,27 @@ sub process {
                  . ($params->{'try'} - 1) . ' submits.';
 
             my $mark = $PGscore;
-            #FIXME -- refactor the construction of the score
             my $score;
-            if ($mark >= MAX_MARK()) {
-                $return->{results}->{attempts} = $params->{try};
-                #push scores
-                $score = OpaqueServer::Score->new(MAX_MARK());
-                push @{$return->{results}->{scores}}, $score;
-             } elsif ($mark <= 0) {
-                $return->{results}->{attempts} = -1;
-                $score = OpaqueServer::Score->new(0);
-                push @{$return->{results}->{scores}}, $score;
-            } else {
-                $return->{results}->{attempts} = $params->{try};
-                $score = OpaqueServer::Score->new($mark);
-                push @{$return->{results}->{scores}}, $score;
-            }
+            $mark = MAX_MARK() if $mark >= MAX_MARK;
+            $mark = 0 if $mark <=0;
+            $score = OpaqueServer::Score->new($mark);
+            $return->{results}->{attempts} = ($mark)? $params->{try}: -1;
+            push @{$return->{results}->{scores}}, $score;
+# refactored
+#            if ($mark >= MAX_MARK()) {
+#                 $return->{results}->{attempts} = $params->{try};
+#                 #push scores
+#                 $score = OpaqueServer::Score->new(MAX_MARK());
+#                 push @{$return->{results}->{scores}}, $score;
+#              } elsif ($mark <= 0) {
+#                 $return->{results}->{attempts} = -1;
+#                 $score = OpaqueServer::Score->new(0);
+#                 push @{$return->{results}->{scores}}, $score;
+#             } else {
+#                 $return->{results}->{attempts} = $params->{try};
+#                 $score = OpaqueServer::Score->new($mark);
+#                 push @{$return->{results}->{scores}}, $score;
+#             }
         }
 
         if (defined($params->{'-finish'})) {
@@ -339,12 +355,28 @@ sub stop {
 	my $self = shift;
 	my $questionSession = shift;
 	warn "\nstop(): session: $questionSession\n";
+	warn "additional params: ", join(" ", @_), "\n";
 	$self->handle_special_from_sessionid($questionSession, 'stop');
 }
 
 ###########################################
 # Utility functions
 ###########################################
+
+sub array_combine {       # zips two array refs into a hash ref
+                          #duplicates a php function -- not a method
+        my ($paramNames, $paramValues) = @_;
+		my $combinedHash = {};
+		my $length = (@$paramNames<@$paramValues)?@$paramValues:@$paramNames;
+		return () unless $length==@$paramValues and $length==@$paramNames;
+		my @paramValues = (ref($paramValues)=~/array/i)? @$paramValues:();
+		my @paramNames  = (ref($paramNames)=~/array/i)? @$paramNames:();
+		foreach my $i (1..$length) {
+		    my $key = (pop @$paramNames)//$i;
+			$combinedHash->{$key}= pop @$paramValues;
+		}
+		return $combinedHash;
+}
 
 # 
 #      * Handles actions at the low level.
@@ -393,15 +425,16 @@ sub handle_special {
 sub handle_special_from_sessionid {
 	my $self = shift;
 	my ($sessionid, $method) = @_;
+	# handle read-only case
+	warn "handle_special_sessionid(): with  session id: $sessionid method: $method \n";
 	if (substr($sessionid, 0, 3) eq 'ro-') {
             $sessionid = substr($sessionid, 3);
     }
-
-    my ($questionid, $version) = split('-',$sessionid, 1); 
-    $version = $version//'';
-    warn "handle_special_sessionid(): with  session id: $questionid version: $version method: $method\n";
-
-    $self->handle_special_from_questionid($questionid, $version, $method);
+	if ( $sessionid =~/\-/ ) {	
+		my ($questionid, $version) = split('-',$sessionid, 1); 
+		$version = $version//'';		
+    	$self->handle_special_from_questionid($questionid, $version, $method);
+    }
 }
 
 # 
@@ -418,6 +451,7 @@ sub handle_special_from_questionid {
 	my $len = length($method) + 1;
 
 	if (substr($questionid, 0, $len) ne ($method . '.')) {
+	    warn "handle_special_questionid(): do nothing, this is a regular question\n";
 		return; # Nothing special for this method.
 	}
 	#warn "call handle_special with ",substr($questionid,$len), " $version\n";
@@ -447,9 +481,9 @@ sub get_html {
 	my $self = shift;
 	my ($sessionid, $try, $submitteddata) = @_;
 	my $disabled = '';
-	#if (substr($sessionid, 0, 3) eq 'ro-') {
-	#	$disabled = 'disabled="disabled" ';
-	#}
+	if (substr($sessionid, 0, 3) eq 'ro-') {
+	$disabled = 'disabled="disabled" ';
+	}
 	my $localstate = $submitteddata->{localstate}//'WWpreview';
 	$localstate = 'question_attempted' if $localstate ne 'question_graded' and $submitteddata->{WWsubmit};
 	$localstate = 'question_graded'  if $submitteddata->{WWcorrectAns};
@@ -475,7 +509,7 @@ sub get_html {
         #  '[_a-z][_a-zA-Z0-9]*'; -- standard opaque questionid 
         my $pg = OpaqueServer::renderOpaquePGProblem($filePath, $submitteddata);
         my @PGscore_array = map {$_->score} values %{$pg->{answers}};
-        $PGscore=0;
+        my $PGscore=0;
         foreach my $el (@PGscore_array) {
         	$PGscore += $el;
         }
@@ -496,6 +530,7 @@ sub get_html {
 		showCorrectAnswers     => ($localstate eq 'question_graded') ,
 		showMessages           => 1,
 		ce                     => $ce,
+		maketext               => WeBWorK::Localize::getLoc("en"),
 	);
 	my $attemptResults = $tbl->answerTemplate();
 	# render equation images
@@ -559,18 +594,10 @@ if ($showDebuggingData == 1) {
 		$debuggingData .= '<tr><th>' . $name . '</th><td>' . 
 		htmlspecialchars($hiddendata->{$name}) . "</td></tr>\n";
 	}
-    my $computed_problem_seed  = $submitteddata->{'randomseed'} 
-	                     + 12637946 *($submitteddata->{'attempt'}) || 0;
-	$debuggingData .= '<tr><th>computed problem seed </td><td>' .
-	         $computed_problem_seed . "</td></tr>\n";
-############### report input parameters
-# 	$debuggingData.='<tr><th colspan="2"> Parameters</th></tr>';
-# 		for my $key (keys %$submitteddata) {
-# 			$debuggingData .= "<tr><th>$key</th><td>".
-# 			htmlspecialchars($submitteddata->{$key})."</td></tr>\n";
-# 		}
-############### end report
-
+#   my $computed_problem_seed  = $submitteddata->{'randomseed'} 
+# 	                     + 12637946 *($submitteddata->{'attempt'}) || 0;
+#	$debuggingData .= '<tr><th>computed problem seed </td><td>' .
+#	         $computed_problem_seed . "</td></tr>\n";
     $debuggingData .= '
 		</tbody>
 		</table>';
@@ -580,7 +607,7 @@ if ($showDebuggingData == 1) {
 	$debuggingData .= '</div>';
 	$output .= $debuggingData;
 }
-	return $output;
+	return ($output, $PGscore);
     
 }
 ##############################################
@@ -644,8 +671,7 @@ sub get_html_original {
 sub renderOpaquePGProblem {
     #print "entering renderOpaquePGProblem\n\n";
     my $problemFile = shift//'';
-    my $formFields  = shift//'';
-    my %args = ();
+    my $formFields  = shift//'';  # these fields are part of $submitteddata"
     my $courseName = $formFields->{courseName}||'daemon_course';
     #warn "rendering $problemFile in course $courseName \n";
  	$ce = create_course_environment($courseName);
@@ -659,8 +685,10 @@ sub renderOpaquePGProblem {
 	# use Tim Hunt's magic formula for creating the random seed:
 	# _randomseed is the constant 123456789 and attempt is incremented by 1
 	# incrementing by more than one helps some pseudo random number generators ????	
-	my $problem_seed  = $formFields->{'randomseed'} 
-	                     + 12637946 *($formFields->{'attempt'}) || 0;
+# 	my $problem_seed  = $formFields->{'randomseed'} 
+# 	                     + 12637946 *($formFields->{'attempt'}) || 0;
+# 	$formFields->{computed_problem_seed}= $problem_seed; # update problem_seed. 
+	my $problem_seed  = $formFields->{computed_problem_seed};
 	my $showHints     = $formFields->{showHints} || 0;
 	my $showSolutions = $formFields->{showSolutions} || 0;
 	my $problemNumber = $formFields->{'problem_number'} || 1;
