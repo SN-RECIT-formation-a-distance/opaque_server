@@ -240,7 +240,7 @@ _RETURN      $OpaqueServer::ProcessReturn
 =end WSDL
 =cut
 our $PGscore=0;
-our $showDebuggingData = 1;
+our $showDebuggingData = 0;
 
 sub process {
 	my $self = shift;
