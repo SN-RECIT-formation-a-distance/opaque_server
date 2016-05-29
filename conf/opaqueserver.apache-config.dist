@@ -52,7 +52,16 @@ $OpaqueServer::RPCURL = $rpc_url;
 $OpaqueServer::FilesURL = $files_url;
 $OpaqueServer::WSDLURL = $wsdl_url;
 $OpaqueServer::courseName = $courseName;  # course name used mainly for referencing the library
-  
+
+ 
+# define debugging parameters
+
+$OpaqueServer::Constants::displayDebuggingData = 1;
+$OpaqueServer::Constants::logDebuggingData =1;
+$OpaqueServer::Constants::logFile = "$root_dir/logs/sessions.log";
+
+
+
 
 #Alias the Directory
 my $htdocs_dir = "$root_dir/htdocs";
@@ -86,14 +95,15 @@ $Location{"$wsdl_url"} = {
 	
 };
 
-        
-print "OpaqueServer:Host $hostname\n";
-print "OpaqueServer::RootDir = $root_dir\n";
-print "OpaqueServer::RootPGDir = $root_pg_dir\n";
-print "OpaqueServer::RPCurl = $rpc_url\n";
-print "OpaqueServer::FilesURL = $files_url\n";
-print "OpaqueServer WSDL url = $wsdl_url\n";
-print "OpaqueServer course name = $courseName\n";
+print "Starting OpaqueServer\n";        
+print "\tOpaqueServer:Host $hostname\n";
+print "\tOpaqueServer::RootDir = $root_dir\n";
+print "\tOpaqueServer::RootPGDir = $root_pg_dir\n";
+print "\tOpaqueServer::RPCurl = $rpc_url\n";
+print "\tOpaqueServer::FilesURL = $files_url\n";
+print "\tOpaqueServer WSDL url = $wsdl_url\n";
+print "\tOpaqueServer course name = $courseName\n";
+print "\tOpaqueServer configuration completed\n";
 </Perl>
 
 # PerlModule OpaqueServer;

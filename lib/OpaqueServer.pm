@@ -17,17 +17,6 @@ use WWSafe;
 
 use LWP::Simple;
 
-#use OpaqueServer::Environment;
-#use OpaqueServer::Utils::RestrictedClosureClass;
-
-#use OpaqueServer::AnswerRequest;
-#use OpaqueServer::AnswerResponse;
-
-#use OpaqueServer::ProblemRequest;
-#use OpaqueServer::ProblemResponse;
-
-#use OpaqueServer::GeneratorRequest;
-#use OpaqueServer::GeneratorResponse;
 use Memory::Usage;
 
 #opaque library
@@ -52,14 +41,15 @@ use constant fakeSetName => "Undefined_Set";
 use constant fakeUserName => "Undefined_User";
 
 
-
 use constant MAX_MARK => 1;
 
 our $memory_usage = Memory::Usage->new();
 
-our $displayDebuggingData = 1;
-our $logDebuggingData =1;
-our $logFile = "/Volumes/WW_test/opt/webwork/ww_opaque_server/logs/sessions.log";
+# debugging configuration defined in conf/opaqueserver.apache-config
+our $displayDebuggingData  = $OpaqueServer::Constants::displayDebuggingData;
+our $logDebuggingData      = $OpaqueServer::Constants::logDebuggingData;
+our $logFile               = $OpaqueServer::Constants::logFile;
+
 ####################################################################################
 #SOAP CALLABLE FUNCTIONS
 ####################################################################################
