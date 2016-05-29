@@ -12,23 +12,14 @@ use warnings;
 
 
 use MIME::Base64 qw( encode_base64 decode_base64);
-
+use Date::Format qw(time2str) ;
 use WWSafe;
 
 use LWP::Simple;
 
-#use OpaqueServer::Environment;
-#use OpaqueServer::Utils::RestrictedClosureClass;
+use Memory::Usage;
 
-#use OpaqueServer::AnswerRequest;
-#use OpaqueServer::AnswerResponse;
-
-#use OpaqueServer::ProblemRequest;
-#use OpaqueServer::ProblemResponse;
-
-#use OpaqueServer::GeneratorRequest;
-#use OpaqueServer::GeneratorResponse;
-
+#opaque library
 use OpaqueServer::StartReturn;
 use OpaqueServer::ProcessReturn;
 
@@ -37,26 +28,27 @@ use OpaqueServer::Exception;
 use OpaqueServer::Results;
 use OpaqueServer::Score;
 
+#pg library
 use WeBWorK::PG::Translator;
 use WeBWorK::PG::ImageGenerator;
-use WeBWorK::Utils::AttemptsTable;
-
-use Memory::Usage;
-
 use PGUtil qw(pretty_print not_null);
-use WeBWorK::Utils::Tasks qw(fake_set fake_problem fake_user);   # may not be needed
 
+#webwork2 library
+use WeBWorK::Utils::AttemptsTable;
+use WeBWorK::Utils::Tasks qw(fake_set fake_problem fake_user);   # may not be needed
+use WeBWorK::Localize;
 use constant fakeSetName => "Undefined_Set";
 use constant fakeUserName => "Undefined_User";
 
 
-
 use constant MAX_MARK => 1;
 
-our $DEBUG=0;
 our $memory_usage = Memory::Usage->new();
 
-
+# debugging configuration defined in conf/opaqueserver.apache-config
+our $displayDebuggingData  = $OpaqueServer::Constants::displayDebuggingData;
+our $logDebuggingData      = $OpaqueServer::Constants::logDebuggingData;
+our $logFile               = $OpaqueServer::Constants::logFile;
 
 ####################################################################################
 #SOAP CALLABLE FUNCTIONS
@@ -164,9 +156,8 @@ _RETURN              $OpaqueServer::StartReturn
 
 sub start {
     my $self = shift;
-	my ($questionid, $questionversion, $url, $initialParamNames, $initialParamValues,$cachedResources) = @_;
-	warn "\n\nin start() with questionid $questionid \n";
-	warn "question base url is $url\n";
+	my ($questionid, $questionversion, $url, $initialParamNames, $initialParamValues,$cachedResources) = @_;	
+	#warn "question base url is $url\n";
 	# get course name
 	$url = $url//'';
 	$url =~ m|.*webwork2/(.*)$|;
@@ -175,52 +166,73 @@ sub start {
 	my $paramNames = ref($initialParamNames)? $initialParamNames:[];
 	my $paramValues = ref($initialParamValues)? $initialParamValues:[];
 	$self->handle_special_from_questionid($questionid, $questionversion, 'start');
+	# the above call does nothing for ordinary questions -- does do something for testing questions 
     # zip params into hash
 	my $initparams = array_combine($paramNames, $paramValues);
 	$initparams->{questionid} = $questionid;
 	$initparams->{courseName} = $courseName; #store courseName
-	warn "course used for accessing questions is $courseName\n\n";
-	# create startReturn type and fill it
-		my $return = OpaqueServer::StartReturn->new(
-			$questionid, $questionversion,
-	    	$initparams->{display_readonly}
-	    ); #readonly if this value is defined and 1
-	    if (defined($questionid) and $questionid=~/\.pg/i) {
-			$return->{XHTML} = $self->get_html($return->{questionSession}, 1, $initparams);
-			# need questionid parameter to find source filepath
-		} else {
-			$return->{XHTML}=$self->get_html_original($return->{questionSession}, 1, $initparams);
+	
+	# use Tim Hunt's magic formula for creating the random seed:
+	# _randomseed is the constant 123456789 and attempt is incremented by 1
+	# incrementing by more than one helps some pseudo random number generators ????	
+	my $problem_seed  = $initparams->{'randomseed'} 
+	                     + 12637946 *($initparams->{'attempt'}) || 0;
+	$initparams->{computed_problem_seed}= $problem_seed; # update problem_seed. 
+	if ($logDebuggingData) {
+		my @lines;
+		push @lines, "\n\n##############################\nstart(): \n";
+		push @lines, "questionid: $questionid \n";
+		push @lines, "#####\nparameters:\n";
+		foreach my $key (sort keys %$initparams) {
+			my $value = $initparams->{$key};
+			push @lines, "$key => $value\n";
 		}
-		#$return->{XHTML} = $self->get_html($return->{questionSession}, 1, $initparams);
-		$return->{CSS} = $self->get_css();
-		$return->{progressInfo} = "Try 1";
-		$return->{questionSession}=  int(10**5*rand()); 
-        warn "set questionSession =  ",$return->{questionSession},"\n"; 
-		my $resource = OpaqueServer::Resource->make_from_file(
-                "$OpaqueServer::RootDir/pix/world.gif", 
-                'world.gif', 
-                'image/gif'
-        );
-        $return->addResource($resource);
+		push @lines, "end parameters\n##### \n";
+		writeLog(@lines);
+		warn "\nparameters for start written to $logFile\n";
+	}
+
+	
+	
+	# warn "course used for accessing questions is $courseName\n\n";
+	# create startReturn type and fill it
+	my $return = OpaqueServer::StartReturn->new(
+			$questionid, $questionversion, $initparams->{display_readonly} 
+	); #readonly if this value is defined and 1
+	
+	$return->{CSS} = $self->get_css();
+	$return->{progressInfo} = "Try 1";
+	# $return->{questionSession}=  int(10**5*rand());  
+	if (defined($questionid) and $questionid=~/\.pg/i) {
+	    #warn "return text of question\n";
+	    my $PGscore;
+		($return->{XHTML},$PGscore) = $self->get_html($return->{questionSession}, 1, $initparams);
+		# need questionid parameter to find source filepath
+	} else {
+		$return->{XHTML}=$self->get_html_original($return->{questionSession}, 1, $initparams);
+	}
+	my $resource = OpaqueServer::Resource->make_from_file(
+			"$OpaqueServer::RootDir/pix/world.gif", 
+			'world.gif', 
+			'image/gif'
+	);
+	$return->addResource($resource);
+	
+	######################
+	# send data to ww_opaque_server/logs/session.log file
+	######################
+		if ($logDebuggingData) {
+		my @lines = ();
+		push @lines, "Return data from start():\n";
+		push @lines, "set questionSession =  ",$return->{questionSession},"\n";
+		writeLog(@lines);
+		warn $return->{questionSession}, " results for start() written to $logFile";
+	}
+
 	# return start type
 	return $return;
 }
 
-
-########## utility subroutine -- zips two array refs into a hash ref #############
-sub array_combine {       #duplicates a php function -- not a method
-        my ($paramNames, $paramValues) = @_;
-		my $combinedHash = {};
-		my $length = (@$paramNames<@$paramValues)?@$paramValues:@$paramNames;
-		return () unless $length==@$paramValues and $length==@$paramNames;
-		my @paramValues = (ref($paramValues)=~/array/i)? @$paramValues:();
-		my @paramNames  = (ref($paramNames)=~/array/i)? @$paramNames:();
-		foreach my $i (1..$length) {
-		    my $key = (pop @$paramNames)//$i;
-			$combinedHash->{$key}= pop @$paramValues;
-		}
-		return $combinedHash;
-}
 
 # 
 #      * returns an object (the structure of the object is taken from an OpenMark question)
@@ -239,33 +251,32 @@ _FAULT       OpaqueServer::Exception
 _RETURN      $OpaqueServer::ProcessReturn
 =end WSDL
 =cut
-our $PGscore=0;
+
 sub process {
 	my $self = shift;
 	my ($questionSession, $names, $values) = @_;
-    warn "\n\nin process with questionSession:  $questionSession\n";
+	my $PGscore = 0;
      # zip params into hash
 	my $params = array_combine($names, $values);
+	# use Tim Hunt's magic formula for creating the random seed:
+	# _randomseed is the constant 123456789 and attempt is incremented by 1
+	# incrementing by more than one helps some pseudo random number generators ????	
+	my $problem_seed  = $params->{'randomseed'} 
+	                     + 12637946 *($params->{'attempt'}//0) || 0;
+	$params->{computed_problem_seed}= $problem_seed; # update problem_seed. 
 	
-############### report input parameters
-		my $str = "";
-		for my $key (keys %$params) {
-			$str .= "$key => ".$params->{$key}. ", \n";
-		}
-		warn "Parameters passed to process ".ref($params)." $str\n\n";
-############### end report
     $self->handle_special_from_process($params);
 	# initialize the attempt number
 	$params->{try} = $params->{try}//-666;
 	# bump the attempt number if this is a submission
-	$params->{try}++ if defined( $params->{WWsubmit} ); # or defined( $params->{WWgrade} );
+	$params->{try}++ if defined( $params->{WWsubmit} ); # or defined( $params->{WWcorrectAns} );
 	# prepare return object 
 	my $return = OpaqueServer::ProcessReturn->new();
 	if (defined($params->{questionid} and $params->{questionid}=~/\.pg/i) ){
-		$return->{XHTML} = $self->get_html($questionSession, $params->{try}, $params);
-		warn "get_html finish params ", $params->{finish};
-		# need questionid parameter to find source filepath
+		($return->{XHTML}, $PGscore) = $self->get_html($questionSession, $params->{try}, $params);
+				# need questionid parameter to find source filepath
 	} else {
+	    # this was used for testing the server using testopaque module
 		$return->{XHTML}=$self->get_html_original($questionSession, $params->{try}, $params);
 	}
 	$return->{progressInfo} = 'Try ' .$params->{try};
@@ -276,49 +287,76 @@ sub process {
                 'image/gif'
         )
     );
-     if (defined($params->{finish}) ) {
-            #$return->{questionEnd} = 'true';
-            $return->{results} = OpaqueServer::Results->new();
-            $return->{results}->{questionLine} = 'Test Opaque question.';
-            $return->{results}->{answerLine} = 'Finished on demand.';
-            $return->{results}->{actionSummary} = 'Finished on demand after ' 
+    
+    ##################################
+    # Prepare marks
+    ##################################
+	my $mark = $PGscore;
+	my $score;
+	$mark = MAX_MARK() if $mark >= MAX_MARK;
+	$mark = 0 if $mark <=0;
+	$score = OpaqueServer::Score->new($mark);
+	
+	
+    ##################################
+    # Return results
+    ##################################
+   
+    if (defined($params->{finish}) ) {   
+    		$return->{results} = OpaqueServer::Results->new();         
+            $return->{results}->{questionLine}  = 'Opaque question: $questionSession';
+            $return->{results}->{answerLine}    = '"finish" command from type issued';
+            $return->{results}->{actionSummary} = 'Finished after ' 
                  . ($params->{'try'} - 1) . ' submits.';
+			$return->{results}->{attempts} = ($mark)? $params->{try}: -1;
+			push @{$return->{results}->{scores}}, $score;
 
-            my $mark = $PGscore;
-            #FIXME -- refactor the construction of the score
-            my $score;
-            if ($mark >= MAX_MARK()) {
-                $return->{results}->{attempts} = $params->{try};
-                #push scores
-                $score = OpaqueServer::Score->new(MAX_MARK());
-                push @{$return->{results}->{scores}}, $score;
-             } elsif ($mark <= 0) {
-                $return->{results}->{attempts} = -1;
-                $score = OpaqueServer::Score->new(0);
-                push @{$return->{results}->{scores}}, $score;
-            } else {
-                $return->{results}->{attempts} = $params->{try};
-                $score = OpaqueServer::Score->new($mark);
-                push @{$return->{results}->{scores}}, $score;
-            }
-        }
+    }
 
-        if (defined($params->{'-finish'})) {
-            $return->{questionEnd} = 'true';
-            $return->{results} = OpaqueServer::Results->new();
-            $return->{results}->{questionLine} = 'Test Opaque question.';
-            $return->{results}->{answerLine} = 'Finished by Submit all and finish.';
-            $return->{results}->{actionSummary} = 'Finished by Submit all and finish. Treating as a pass.';
-            $return->{results}->{attempts} = 0;
-        }
+	if (defined($params->{'-finish'})) {
+		$return->{questionEnd} = 'true';
+		$return->{results} = OpaqueServer::Results->new();
+		$return->{results}->{questionLine} = 'Opaque question: $questionSession';
+		$return->{results}->{answerLine} = '"-finish" command from behaviour issued';
+		$return->{results}->{actionSummary} = 'Finished by Submit all and finish. Treating as a pass.';
+		$return->{results}->{attempts} = 0;
+	}
+	######################
+	# send data to ww_opaque_server/logs/session.log file
+	######################
+	if ($logDebuggingData) {
+		my @lines=();
+		my $str = "";
+		for my $key (sort keys %$params) {
+			$str .= "\t$key => ".$params->{$key}. ", \n";
+		}
+
+		push @lines,  "\n##################################################\n";
+		push @lines,  "process() with questionSession:  $questionSession\n";
+		push @lines,  "\tid = ", $params->{questionid}//'',"\n";
+		push @lines,  "\tfinish = ", $params->{finish}//'',"\n";
+		push @lines,  "\t-finish = ", $params->{'-finish'}//'', "\n";
+		push @lines,  "\tlocalstate, before processing = ", $params->{localstate}//'',"\n";
+		push @lines,  "Parameters passed to process ".ref($params)."\n $str\n";
+		push @lines,  "##################################################\n";
+		########## include results data
+		if (ref($return->{results})=~/HASH/i) {
+			my $str = "";
+			for my $key (keys %{$return->{results} }) {
+				$str .= "\t$key => ".($return->{results}->{$key}). ", \n";
+			}
+			push @lines, "Results returned: \n";
+			push @lines, $str;
+		}
+		writeLog(@lines);
+		warn "$questionSession parameters for process() written to $logFile";
+	}
+	############### end report
+
 	
 	$return;
 }
 
-# 
-#      * A dummy implementation of the stop method.
-#      * @param $questionsession the question session id.
-# 
 
 =pod
 =begin WSDL
@@ -330,13 +368,38 @@ _FAULT               OpaqueServer::Exception
 sub stop {
 	my $self = shift;
 	my $questionSession = shift;
-	warn "\nin stop. session: $questionSession\n";
+	######################
+	# send data to ww_opaque_server/logs/session.log file
+	######################
+
+	if ($logDebuggingData) {
+		my @lines =();
+		push @lines, "\nstop(): session: $questionSession\n";
+		push @lines,  "additional params: ", join(" ", @_), "\n";
+		writeLog(@lines);
+		warn "$questionSession parameters for stop() written to $logFile";
+	}
 	$self->handle_special_from_sessionid($questionSession, 'stop');
 }
 
 ###########################################
 # Utility functions
 ###########################################
+
+sub array_combine {       # zips two array refs into a hash ref
+                          #duplicates a php function -- not a method
+        my ($paramNames, $paramValues) = @_;
+		my $combinedHash = {};
+		my $length = (@$paramNames<@$paramValues)?@$paramValues:@$paramNames;
+		return () unless $length==@$paramValues and $length==@$paramNames;
+		my @paramValues = (ref($paramValues)=~/array/i)? @$paramValues:();
+		my @paramNames  = (ref($paramNames)=~/array/i)? @$paramNames:();
+		foreach my $i (1..$length) {
+		    my $key = (pop @$paramNames)//$i;
+			$combinedHash->{$key}= pop @$paramValues;
+		}
+		return $combinedHash;
+}
 
 # 
 #      * Handles actions at the low level.
@@ -346,7 +409,7 @@ sub stop {
 sub handle_special {
 	my $self = shift;
 	my ($code,$delay) = @_;
-	warn "in handle_special with code $code and delay $delay\n";
+	warn "handle_special(): with code: $code and delay: $delay\n";
 	($code eq 'fail') && do {
 		# throw new SoapFault('1', 'Test opaque engine failing on demand.');
 		die SOAP::Fault->faultcode(1)->faultstring('Test opaque engine failing on demand.');
@@ -385,15 +448,16 @@ sub handle_special {
 sub handle_special_from_sessionid {
 	my $self = shift;
 	my ($sessionid, $method) = @_;
+	# handle read-only case
+	warn "handle_special_sessionid(): with  session id: $sessionid method: $method \n";
 	if (substr($sessionid, 0, 3) eq 'ro-') {
             $sessionid = substr($sessionid, 3);
     }
-
-    my ($questionid, $version) = split('-',$sessionid, 1); 
-    $version = $version//'';
-    warn "in handle_special_sessionid with  session id: $questionid version $version method $method\n";
-
-    $self->handle_special_from_questionid($questionid, $version, $method);
+	if ( $sessionid =~/\-/ ) {	
+		my ($questionid, $version) = split('-',$sessionid, 1); 
+		$version = $version//'';		
+    	$self->handle_special_from_questionid($questionid, $version, $method);
+    }
 }
 
 # 
@@ -406,13 +470,14 @@ sub handle_special_from_questionid {
 	my $self = shift;
 	my ($questionid, $version, $method) = @_;
 	$version = $version//'';   # in case version isn't initialized.
-	warn "in handle_special_questionid with questionid $questionid version $version method $method\n";
+	warn "handle_special_questionid(): $questionid version: $version method: $method\n";
 	my $len = length($method) + 1;
 
 	if (substr($questionid, 0, $len) ne ($method . '.')) {
+	    warn "handle_special_questionid(): do nothing, this is a regular question\n";
 		return; # Nothing special for this method.
 	}
-	warn "call handle_special with ",substr($questionid,$len), " $version\n";
+	#warn "call handle_special with ",substr($questionid,$len), " $version\n";
     $self->handle_special(substr($questionid, $len), $version);
 }
 
@@ -432,46 +497,81 @@ sub handle_special_from_process {
 
 # 
 #      * Generate the HTML we will send back in reply to start/process calls.
-#      * @param array $params to display, and add as hidden form fields.
+#      * @submitteddata array preserved as hidden form fields.
 #      * @return string HTML code.
 # 
 sub get_html {
 	my $self = shift;
-	my ($sessionid, $try, $submitteddata) = @_;
-	my $disabled = '';
-	#if (substr($sessionid, 0, 3) eq 'ro-') {
-	#	$disabled = 'disabled="disabled" ';
-	#}
-	my $localstate = $submitteddata->{localstate}//'preview';
-	$localstate = 'attempt' if $localstate ne 'graded' and $submitteddata->{WWsubmit};
-	$localstate = 'graded'  if $submitteddata->{WWgrade};
+	my ($sessionid, $try, $submitteddata) = @_; #( submitteddata is the same as initparams )
+	
+ 	# determine whether this session is read only using ro- prefix
+	######################################
+	my $display_readonly=0;
+	if (substr($sessionid, 0, 3) eq 'ro-') {
+		$display_readonly = 1;
+		warn "session id begins with ro- :  $sessionid ";
+	}
+	######################################
+	my $localstate = $submitteddata->{localstate}//'WWpreview';
+	$localstate = 'question_attempted' if $localstate ne 'question_graded' and $submitteddata->{WWsubmit};
+	$localstate = 'question_graded'  if $submitteddata->{WWcorrectAns};
+	$submitteddata->{localstate}=$localstate; #update $params
+	my $WWpreviewDisabled     = ($display_readonly or $localstate eq 'question_graded')?'disabled="disabled" ':'';
+	my $WWsubmitDisabled      = ($display_readonly or $localstate eq 'question_graded')?'disabled="disabled" ':'';
+	my $WWcorrectAnsDisabled  = ($display_readonly or $localstate eq 'question_graded')?'disabled="disabled" ':'';
+	$submitteddata->{finish}='Finish' if $display_readonly or $submitteddata->{WWcorrectAns};
+	$submitteddata->{submit}='Submit' if $submitteddata->{WWpreview} or 
+	    $submitteddata->{WWsubmit} or $submitteddata->{WWcorrectAns};
+	######################################
+	# Adjust file path
+	######################################
+	# the file paths allowed in PG were adjusted to conform to opaque naming requirements
+	# this section reconstructs the original PG path
+	# - in PG  is replaced by ___ three underscores
+	# / in PG  is replaced by -- two underscores
+	# an initial Library/... in PG is replaced by library/
+	# this implies that using multiple adjacent underscores in a PG file path 
+	# is a bad idea.
+	#####
+	# the opaque standard is 
+	#  '[_a-z][_a-zA-Z0-9]*'; -- standard opaque questionid 
+	#####
+	my $filePath = $submitteddata->{questionid};
+	$filePath =~ s/\_\_\_/\-/g;  # hand fact that - is replaced by ___ 3 underscores
+	$filePath =~ s/\_\_/\//g; # handle fact that / must be replaced by __ 2 underscores
+	$filePath =~ s/^library/Library/;    # handle the fact that id's must start with non-caps (opaque/edit_opaque_form.php)
 
-	my $previewDisabled   = ($localstate eq 'graded')?'disabled="disabled" ':'';
-	my $WWsubmitDisabled = ($localstate eq 'graded')?'disabled="disabled" ':'';
-    my $WWgradeDisabled =  ($localstate eq 'graded')?'disabled="disabled" ': '';
-	my $hiddendata = {
-		'try' => $try,
-		'questionid' => $submitteddata->{questionid},
-		'localstate' => $localstate, 
-		%$submitteddata,
-	};
-	$submitteddata->{finish}='Finish' if $submitteddata->{WWgrade};
-	$submitteddata->{submit}='Submit' if $submitteddata->{preview} or 
-	$submitteddata->{WWsubmit} or $submitteddata->{WWgrade};
-	 my $filePath = $submitteddata->{questionid};
-	    $filePath =~ s/\_\_\_/\-/g;  # hand fact that - is replaced by ___ 3 underscores
-        $filePath =~ s/\_\_/\//g; # handle fact that / must be replaced by __ 2 underscores
-        $filePath =~ s/^library/Library/;    # handle the fact that id's must start with non-caps (opaque/edit_opaque_form.php)
-        #  dash - is also not normally allowed as an character in question ids 
-        #  '[_a-z][_a-zA-Z0-9]*'; -- standard opaque questionid 
-        my $pg = OpaqueServer::renderOpaquePGProblem($filePath, $submitteddata);
-        my @PGscore_array = map {$_->score} values %{$pg->{answers}};
-        $PGscore=0;
-        foreach my $el (@PGscore_array) {
-        	$PGscore += $el;
-        }
-        $PGscore = (@PGscore_array) ? $PGscore/@PGscore_array : 0;
-        warn "PG scores $PGscore ", join(" ", @PGscore_array), "\n\n";
+	######################################
+	# Have PG render the problem
+	######################################
+	
+	my $pg = OpaqueServer::renderOpaquePGProblem($filePath, $submitteddata);
+
+	######################################
+	# Calculate the mark (PG score) for the question
+	######################################
+
+	my @PGscore_array = map {$_->score} values %{$pg->{answers}};
+	my $PGscore=0;
+	foreach my $el (@PGscore_array) {
+		$PGscore += $el;
+	}
+	$PGscore = (@PGscore_array) ? $PGscore/@PGscore_array : 0;
+	
+	## if answers are correct automatically bump state to "question_graded"
+	## as if the WWcorrectAns button (Finish and Grade) was pushed.
+	 if ($PGscore==1) {
+		$submitteddata->{WWcorrectAns} =1;
+		$localstate = 'question_graded'  if $submitteddata->{WWcorrectAns};
+		# $WWpreviewDisabled     = ($localstate eq 'question_graded')?'disabled="disabled" ':'';
+		# $WWsubmitDisabled      = ($localstate eq 'question_graded')?'disabled="disabled" ':'';
+		#$WWcorrectAnsDisabled  =  ($localstate eq 'question_graded')?'disabled="disabled" ':'';
+		# $submitteddata->{finish}='Finish' if $submitteddata->{WWcorrectAns};
+		$submitteddata->{submit}='Submit' if $submitteddata->{WWpreview} or 
+		$submitteddata->{WWsubmit} or $submitteddata->{WWcorrectAns};
+	 }
+	 
+
     my $answerOrder = $pg->{flags}->{ANSWER_ENTRY_ORDER};
 	my $answers = $pg->{answers};
 	my $ce = create_course_environment($submitteddata->{courseName});
@@ -483,81 +583,114 @@ sub get_html {
 		displayMode            => $ce->{pg}->{options}->{displayMode}||'images',
 		imgGen                 => '',	
 		showAttemptPreviews    => 1,
-		showAttemptResults     => ($localstate eq 'attempt' or $localstate eq 'graded'),
-		showCorrectAnswers     => ($localstate eq 'graded') ,
+		showAttemptResults     => ($localstate eq 'question_attempted' or $localstate eq 'question_graded'),
+		showCorrectAnswers     => ($display_readonly or $localstate eq 'question_graded') ,
 		showMessages           => 1,
 		ce                     => $ce,
+		maketext               => WeBWorK::Localize::getLoc("en"),
 	);
-	warn "attemptsTable is ", $tbl;
-	warn "tbl imgGen is ", $tbl->imgGen;
 	my $attemptResults = $tbl->answerTemplate();
 	# render equation images
 	$tbl->imgGen->render(refresh => 1) if $tbl->displayMode eq 'images';
 
-    my $output = '
-		<div class="local_testopaqueqe">
-		<h2>WeBWorK-Moodle Question type</h2><p> (Using Opaque question type)</p>
-		<p>This is the WeBWorK test Opaque engine  '  ." at $OpaqueServer::Host <br/>  sessionID ".
-		$sessionid . ' with question attempt ' . $try . 
-	    '</p><p>  </p>';
+	######################################
+	# Store state in HTML page (our implementation of session storage)
+	######################################
 
+    my $hiddendata = {
+		'try' => $try,
+		'questionid' => $submitteddata->{questionid},
+		'localstate' => $localstate, 
+		%$submitteddata,
+	};
+	######################################
+	## prepare diagonostic information
+	######################################
+
+	my $debuggingData = '';
+	if ($displayDebuggingData == 1) {
+		$debuggingData= join("\n",
+			'<h2>WeBWorK-Moodle Question type</h2>',
+			'<br/>finish = '.($submitteddata->{'finish'}//''),
+			'<br/>-finish= '.($submitteddata->{'-finish'}//''),
+			'<br/>display_readonly= '.($submitteddata->{'display_readonly'}//''),
+			'<br/>display_correctness= '.($submitteddata->{'display_correctness'}//''),
+			"<br/>",
+			qq!<p>This is the WeBWorK test Opaque engine at $OpaqueServer::Host <br/>!,
+			qq!sessionID: $sessionid with question attempt: $try!, 
+			qq!</p>!,
+			q!<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+			
+				<script>
+					if (slide_text_div) {
+						// alert("Slide_text_div defined");
+						// prevent this function from being defined
+						// multiple times in one page
+					} else {
+						var slide_text_div = $(document).ready(function(){
+							$( ".clickme" ).click(function() {
+							  $( this).next().slideToggle( "slow", function() {
+								// Animation complete.
+							  });
+							});
+						   // jQuery methods go here...
+						});
+					}
+				</script>
+				<style>
+					.clickme {background-color: #ccccFF ;}
+				</style>!,
+			'<div class="clickme"> Click here to show more details</div>'
+		);
+		$debuggingData .='<div class="answer-details" style="display: none;">';
+		$debuggingData .='
+			<h3>Submitted data</h3>
+			<table>
+			<thead>
+			<tr><th>Name</th><th>Value</th></tr>
+			</thead>
+			<tbody>';
+
+		foreach my $name (keys %$hiddendata)  {
+			$debuggingData .= '<tr><th>' . $name . '</th><td>' . 
+			htmlspecialchars($hiddendata->{$name}) . "</td></tr>\n";
+		}
+		$debuggingData .= '
+			</tbody>
+			</table>';
+
+		$debuggingData .= pretty_print($pg->{answers},'html',4); #  $pg->{body_text};
+		$debuggingData .= pretty_print($tbl,'html',4);
+		$debuggingData .= '</div>';
+	}
+	# debugging data prepared
+
+	######################################
+	# Prepare output HTML
+	######################################
+
+    my $output = '<div class="local_testopaqueqe">';
+	## store state
 	foreach my $name (keys %$hiddendata)  {
 		$output .= '<input type="hidden" name="%%IDPREFIX%%' . $name .
 				'" value="' . htmlspecialchars($hiddendata->{$name}//'') . '" />' . "\n";
 	}
+	## print results table
 	$output .= $attemptResults;
+	## print question text
 	$output .= "\n<hr>\n". $pg->{body_text}."\n<hr>\n";
-	$output .= '
-        <h4>Actions</h4>
-		<p><input type="submit" name="%%IDPREFIX%%preview"  value="Preview" ' . $previewDisabled . '/> 
-		<input type="submit" name="%%IDPREFIX%%WWsubmit" value="Submit Attempt" ' . $WWsubmitDisabled . '/> 
-		<input type="submit" name="%%IDPREFIX%%WWgrade" value="Grade and Finish" ' . $WWgradeDisabled . '/>
-		</p>
-		</div>';
+	## print buttons (preview, submit, grade&finish)
+	$output .= join("\n",#        '<h4>Actions</h4>',
+		'<p>',
+		q!<button type="submit" name="%%IDPREFIX%%WWpreview"  value=1!.qq!  $WWpreviewDisabled> Preview Answer(s) </button> !,	
+		q!<button type="submit" name="%%IDPREFIX%%WWsubmit" value=1!.qq!  $WWsubmitDisabled> Submit Answer(s) </button> !,
+		q!<button type="submit" name="%%IDPREFIX%%WWcorrectAns" value=1!.qq!  $WWcorrectAnsDisabled> Grade and Finish </button>!,
+		'</p>',
+		'</div>',
+	);
 
-	$output .= '<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
-		<script>
-			$(document).ready(function(){
-				$( ".clickme" ).click(function() {
-				  $( this).next().slideToggle( "slow", function() {
-					// Animation complete.
-				  });
-				});
-
-			   // jQuery methods go here...
-			});
-		</script>
-		<style>
-			.clickme {background-color: #ccccFF ;}
-		</style>';
-    $output .='<div class="clickme">
-  			Click here to show more details
-			</div>';
-	$output .='<div class="answer-details" style="display: none;">';
-	$output .='
-		<h3>Submitted data</h3>
-		<table>
-		<thead>
-		<tr><th>Name</th><th>Value</th></tr>
-		</thead>
-		<tbody>';
-
-	foreach my $name (keys %$hiddendata)  {
-		$output .= '<tr><th>' . $name . '</th><td>' . 
-		htmlspecialchars($hiddendata->{$name}) . "</td></tr>\n";
-	}
-    my $computed_problem_seed  = $submitteddata->{'randomseed'} 
-	                     + 12637946 *($submitteddata->{'attempt'}) || 0;
-	$output .= '<tr><th>computed problem seed </td><td>' .
-	         $computed_problem_seed . "</td></tr>\n";
-    $output .= '
-		</tbody>
-		</table>';
-
-	$output .= pretty_print($pg->{answers},'html',4); #  $pg->{body_text};
-	$output .= pretty_print($tbl,'html',4);
-	$output .= '</div>';
-	return $output;
+	$output .= $debuggingData;
+	return ($output, $PGscore);
     
 }
 ##############################################
@@ -577,7 +710,7 @@ sub get_html_original {
 <div class="local_testopaqueqe">
 <h2><span>Hello <img src="%%RESOURCES%%/world.gif" alt="world" />!</span></h2>
 <p>This is the WeBWorK test Opaque engine  '  ." at $OpaqueServer::Host <br/>  sessionID ".
-    $sessionid . ' with question attempt ' . $try . '</p>';
+    $sessionid . ' with question attempt number ' . $try . '</p>';
 
 	foreach my $name (keys %$hiddendata)  {
 		$output .= '<input type="hidden" name="%%IDPREFIX%%' . $name .
@@ -621,14 +754,13 @@ sub get_html_original {
 sub renderOpaquePGProblem {
     #print "entering renderOpaquePGProblem\n\n";
     my $problemFile = shift//'';
-    my $formFields  = shift//'';
-    my %args = ();
+    my $formFields  = shift//'';  # these fields are part of $submitteddata"
     my $courseName = $formFields->{courseName}||'daemon_course';
-    warn "rendering $problemFile in course $courseName \n";
+    #warn "rendering $problemFile in course $courseName \n";
  	$ce = create_course_environment($courseName);
  	$dbLayout = $ce->{dbLayout};	
  	$db = WeBWorK::DB->new($dbLayout);
-    warn "db is $db and ce is $ce \n";
+    #warn "db is $db and ce is $ce \n";
 	my $key = '3211234567654321';
 	
 	my $user          =  fake_user($db); # don't use $formFields->{userid} --it's a number
@@ -636,8 +768,10 @@ sub renderOpaquePGProblem {
 	# use Tim Hunt's magic formula for creating the random seed:
 	# _randomseed is the constant 123456789 and attempt is incremented by 1
 	# incrementing by more than one helps some pseudo random number generators ????	
-	my $problem_seed  = $formFields->{'randomseed'} 
-	                     + 12637946 *($formFields->{'attempt'}) || 0;
+# 	my $problem_seed  = $formFields->{'randomseed'} 
+# 	                     + 12637946 *($formFields->{'attempt'}) || 0;
+# 	$formFields->{computed_problem_seed}= $problem_seed; # update problem_seed. 
+	my $problem_seed  = $formFields->{computed_problem_seed};
 	my $showHints     = $formFields->{showHints} || 0;
 	my $showSolutions = $formFields->{showSolutions} || 0;
 	my $problemNumber = $formFields->{'problem_number'} || 1;
@@ -661,7 +795,7 @@ sub renderOpaquePGProblem {
 	local $ce->{pg}{specialPGEnvironmentVars}{problemPostamble} = {TeX=>'',HTML=>''};
 	my $problem = fake_problem($db, 'problem_seed'=>$problem_seed);
 	$problem->{value} = -1;	
-	warn "problem->problem_seed() ", $problem->problem_seed, "\n";
+	#warn "problem->problem_seed() ", $problem->problem_seed, "\n";
 	if (ref $problemFile) {
 			$problem->source_file('');
 			$translationOptions->{r_source} = $problemFile; # a text string containing the problem
@@ -710,6 +844,20 @@ sub create_course_environment {
 
 ####################################################################################
 
+#########################################################
+# Logging
+#########################################################
+
+sub writeLog {
+	my @message = @_;
+	local *LOG;
+	if (open LOG, ">>", $logFile) {
+		print LOG "[", time2str("%a %b %d %H:%M:%S %Y", time), "] @message\n";
+		close LOG;
+	} else {
+		warn "failed to open $logFile for writing: $!";
+	}
+}
 
 # 
 #     * Get the CSS that we use in our return values.
