@@ -221,7 +221,7 @@ sub start {
 	######################
 	# send data to ww_opaque_server/logs/session.log file
 	######################
-		if ($logDebuggingData) {
+	if ($logDebuggingData) {
 		my @lines = ();
 		push @lines, "Return data from start():\n";
 		push @lines, "set questionSession =  ",$return->{questionSession},"\n";
