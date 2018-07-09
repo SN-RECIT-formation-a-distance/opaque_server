@@ -791,8 +791,9 @@ sub renderOpaquePGProblem {
 	my $extras = {};   # Check what this is used for.
 	
 	# Create template of problem then add source text or a path to the source file
-	local $ce->{pg}{specialPGEnvironmentVars}{problemPreamble} = {TeX=>'',HTML=>''};
-	local $ce->{pg}{specialPGEnvironmentVars}{problemPostamble} = {TeX=>'',HTML=>''};
+	#local $ce->{pg}{specialPGEnvironmentVars}{problemPreamble} = {TeX=>'',HTML=>''};
+	#local $ce->{pg}{specialPGEnvironmentVars}{problemPostamble} = {TeX=>'',HTML=>''};
+	# writeLog("preamble",$ce->{pg}{specialPGEnvironmentVars}{problemPreamble}{HTML});
 	my $problem = fake_problem($db, 'problem_seed'=>$problem_seed);
 	$problem->{value} = -1;	
 	#warn "problem->problem_seed() ", $problem->problem_seed, "\n";
