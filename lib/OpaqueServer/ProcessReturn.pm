@@ -8,6 +8,7 @@ package OpaqueServer::ProcessReturn;
         _ATTR questionEnd   $string   boolean
         _ATTR resources     @OpaqueServer::Resource  array
         _ATTR results       $OpaqueServer::Results  complex value
+        _ATTR resultstmp    $OpaqueServer::ResultsTMP  complex value
 
 =end WSDL
 =cut
@@ -21,6 +22,7 @@ sub new {
     $self->{questionEnd}    = ""; 
     $self->{resources}   	= [];
     $self->{results}     	= ""; 
+    $self->{resultstmp}         = "";
     bless $self;
     return $self;
 }

@@ -1,4 +1,4 @@
-package OpaqueServer::Results;
+package OpaqueServer::ResultsTMP;
 
 =pod
 =begin WSDL
@@ -8,6 +8,7 @@ package OpaqueServer::Results;
         _ATTR attempts             $string   (integer)
         _ATTR scores               @OpaqueServer::Score  compoundObject
         _ATTR customResults        @OpaqueServer::CustomResult compoundObject
+        _ATTR TRY                  $string   (integer)
 
 =end WSDL
 =cut
@@ -20,6 +21,7 @@ sub new {
     $self->{attempts}     		= ""; 
     $self->{scores}   			= [];
     $self->{customResults}     	= []; 
+    $self->{TRY}                = "";
 
     bless $self;
     return $self;

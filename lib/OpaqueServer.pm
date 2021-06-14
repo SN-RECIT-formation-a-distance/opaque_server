@@ -1,3 +1,4 @@
+
 #!/usr/bin/perl -w
 
 
@@ -26,6 +27,7 @@ use OpaqueServer::ProcessReturn;
 use OpaqueServer::Resource;
 use OpaqueServer::Exception;
 use OpaqueServer::Results;
+use OpaqueServer::ResultsTMP;
 use OpaqueServer::Score;
 
 #pg library
@@ -208,6 +210,7 @@ sub start {
 	    my $PGscore;
 		($return->{XHTML},$PGscore) = $self->get_html($return->{questionSession}, 1, $initparams);
 		# need questionid parameter to find source filepath
+
 	} else {
 		$return->{XHTML}=$self->get_html_original($return->{questionSession}, 1, $initparams);
 	}
@@ -217,7 +220,7 @@ sub start {
 			'image/gif'
 	);
 	$return->addResource($resource);
-	
+	   
 	######################
 	# send data to ww_opaque_server/logs/session.log file
 	######################
@@ -302,18 +305,31 @@ sub process {
     # Return results
     ##################################
    
-    if (defined($params->{finish}) ) {   
-    		$return->{results} = OpaqueServer::Results->new();         
-            $return->{results}->{questionLine}  = 'Opaque question: $questionSession';
-            $return->{results}->{answerLine}    = '"finish" command from type issued';
-            $return->{results}->{actionSummary} = 'Finished after ' 
+    if (defined($params->{submit}) ) {   
+    		$return->{resultstmp} = OpaqueServer::ResultsTMP->new();         
+            $return->{resultstmp}->{questionLine}  = 'Opaque question: $questionSession';
+            $return->{resultstmp}->{answerLine}    = '"finish" command from type issued';
+            $return->{resultstmp}->{actionSummary} = 'Finished after ' 
                  . ($params->{'try'} - 1) . ' submits.';
-			$return->{results}->{attempts} = ($mark)? $params->{try}: -1;
-			push @{$return->{results}->{scores}}, $score;
+                        $return->{resultstmp}->{attempts} = ($mark)? $params->{try}: -1;
+                         push @{$return->{resultstmp}->{scores}}, $score;
+            $return->{resultstmp}->{TRY} = $params->{try};
+
 
     }
 
-	if (defined($params->{'-finish'})) {
+    if (defined($params->{WWcorrectAns})){
+                $return->{results} = OpaqueServer::Results->new();
+            $return->{results}->{questionLine}  = 'Opaque question: $questionSession';
+            $return->{results}->{answerLine}    = '"finish" command from type issued';
+            $return->{results}->{actionSummary} = 'Finished after '
+                 . ($params->{'try'} - 1) . ' submits.'; 
+                        $return->{results}->{attempts} = ($mark)? $params->{try}: -1; 
+                        push @{$return->{results}->{scores}}, $score;
+         
+    }
+
+	if (defined($params->{'-finish'}) ) {
 		$return->{questionEnd} = 'true';
 		$return->{results} = OpaqueServer::Results->new();
 		$return->{results}->{questionLine} = 'Opaque question: $questionSession';
@@ -321,6 +337,7 @@ sub process {
 		$return->{results}->{actionSummary} = 'Finished by Submit all and finish. Treating as a pass.';
 		$return->{results}->{attempts} = 0;
 	}
+
 	######################
 	# send data to ww_opaque_server/logs/session.log file
 	######################
@@ -340,12 +357,12 @@ sub process {
 		push @lines,  "Parameters passed to process ".ref($params)."\n $str\n";
 		push @lines,  "##################################################\n";
 		########## include results data
-		if (ref($return->{results})=~/HASH/i) {
+		if (ref($return->{resultstmp})=~/HASH/i) {
 			my $str = "";
-			for my $key (keys %{$return->{results} }) {
-				$str .= "\t$key => ".($return->{results}->{$key}). ", \n";
+			for my $key (keys %{$return->{resultstmp} }) {
+				$str .= "\t$key => ".($return->{resultstmp}->{$key}). ", \n";
 			}
-			push @lines, "Results returned: \n";
+			push @lines, "ResultsTMP returned: \n";
 			push @lines, $str;
 		}
 		writeLog(@lines);
@@ -514,12 +531,12 @@ sub get_html {
 	######################################
 	my $localstate = $submitteddata->{localstate}//'WWpreview';
 	$localstate = 'question_attempted' if $localstate ne 'question_graded' and $submitteddata->{WWsubmit};
-	$localstate = 'question_graded'  if $submitteddata->{WWcorrectAns};
+	$localstate = 'question_graded'  if $submitteddata->{WWcorrectAns}; # or $submitteddata->{WWsubmit};
 	$submitteddata->{localstate}=$localstate; #update $params
-	my $WWpreviewDisabled     = ($display_readonly or $localstate eq 'question_graded')?'disabled="disabled" ':'';
-	my $WWsubmitDisabled      = ($display_readonly or $localstate eq 'question_graded')?'disabled="disabled" ':'';
-	my $WWcorrectAnsDisabled  = ($display_readonly or $localstate eq 'question_graded')?'disabled="disabled" ':'';
-	$submitteddata->{finish}='Finish' if $display_readonly or $submitteddata->{WWcorrectAns};
+	my $WWpreviewDisabled     = ($display_readonly)?'disabled="disabled" ':'';
+	my $WWsubmitDisabled      = ($display_readonly)?'disabled="disabled" ':'';
+	my $WWcorrectAnsDisabled  = ($display_readonly)?'disabled="disabled" ':'';
+	$submitteddata->{finish}='Finish' if $submitteddata->{WWcorrectAns};
 	$submitteddata->{submit}='Submit' if $submitteddata->{WWpreview} or 
 	    $submitteddata->{WWsubmit} or $submitteddata->{WWcorrectAns};
 	######################################
@@ -557,24 +574,36 @@ sub get_html {
 		$PGscore += $el;
 	}
 	$PGscore = (@PGscore_array) ? $PGscore/@PGscore_array : 0;
-	
-	## if answers are correct automatically bump state to "question_graded"
-	## as if the WWcorrectAns button (Finish and Grade) was pushed.
-	 if ($PGscore==1) {
-		$submitteddata->{WWcorrectAns} =1;
-		$localstate = 'question_graded'  if $submitteddata->{WWcorrectAns};
-		# $WWpreviewDisabled     = ($localstate eq 'question_graded')?'disabled="disabled" ':'';
-		# $WWsubmitDisabled      = ($localstate eq 'question_graded')?'disabled="disabled" ':'';
-		#$WWcorrectAnsDisabled  =  ($localstate eq 'question_graded')?'disabled="disabled" ':'';
-		# $submitteddata->{finish}='Finish' if $submitteddata->{WWcorrectAns};
-		$submitteddata->{submit}='Submit' if $submitteddata->{WWpreview} or 
-		$submitteddata->{WWsubmit} or $submitteddata->{WWcorrectAns};
-	 }
+
+        #We add a floor value to only show the correct answer if all the answer of the problem are correct
+
+        my $floor = int($PGscore);
+
+        ## if problem is readonly, bump to grade and  "finish state".
+        ## Useful in Moodle for grading correctly if the test is in "submit all and finish" state.
+        if ($display_readonly == 1) {
+               $submitteddata->{WWsubmit} = 1;
+               $localstate = 'question_graded'  if $submitteddata->{WWsubmit};
+#                $WWpreviewDisabled     = ($localstate eq 'question_graded')?'disabled="disabled" ':'';
+#                $WWsubmitDisabled      = ($localstate eq 'question_graded')?'disabled="disabled" ':'';
+#               $WWcorrectAnsDisabled  =  ($localstate eq 'question_graded')?'disabled="disabled" ':'';
+               $submitteddata->{finish}='Finish' if $submitteddata->{WWcorrectAns} or $submitteddata->{WWsubmit};
+               $submitteddata->{submit}='Submit' if $submitteddata->{WWcorrectAns} or $submitteddata->{WWsubmit};
+       }
 	 
 
     my $answerOrder = $pg->{flags}->{ANSWER_ENTRY_ORDER};
 	my $answers = $pg->{answers};
 	my $ce = create_course_environment($submitteddata->{courseName});
+
+    #Ensure that the attempt result is not showed when the "preview" button is pushed
+
+    my $qgraded = '';
+    if ($localstate eq 'question_attempted' or $localstate eq 'question_graded') {
+                $qgraded = 1;
+    } else {
+                $qgraded = 0;
+    } 
 
     my $tbl = WeBWorK::Utils::AttemptsTable->new(
 		$answers//{},
@@ -583,11 +612,11 @@ sub get_html {
 		displayMode            => $ce->{pg}->{options}->{displayMode}||'images',
 		imgGen                 => '',	
 		showAttemptPreviews    => 1,
-		showAttemptResults     => ($localstate eq 'question_attempted' or $localstate eq 'question_graded'),
-		showCorrectAnswers     => ($display_readonly or $localstate eq 'question_graded') ,
-		showMessages           => 1,
+		showAttemptResults     => $qgraded,  #($localstate eq 'question_graded'),
+		showCorrectAnswers     => $display_readonly || $floor,  #($localstate eq 'question_graded') ,
+		showMessages           => 0,
 		ce                     => $ce,
-		maketext               => WeBWorK::Localize::getLoc("en"),
+		maketext               => WeBWorK::Localize::getLoc("fr"),
 	);
 	my $attemptResults = $tbl->answerTemplate();
 	# render equation images
@@ -603,6 +632,7 @@ sub get_html {
 		'localstate' => $localstate, 
 		%$submitteddata,
 	};
+           
 	######################################
 	## prepare diagonostic information
 	######################################
@@ -676,15 +706,15 @@ sub get_html {
 				'" value="' . htmlspecialchars($hiddendata->{$name}//'') . '" />' . "\n";
 	}
 	## print results table
-	$output .= $attemptResults;
+	$output .= $attemptResults; 
 	## print question text
 	$output .= "\n<hr>\n". $pg->{body_text}."\n<hr>\n";
 	## print buttons (preview, submit, grade&finish)
 	$output .= join("\n",#        '<h4>Actions</h4>',
 		'<p>',
-		q!<button type="submit" name="%%IDPREFIX%%WWpreview"  value=1!.qq!  $WWpreviewDisabled> Preview Answer(s) </button> !,	
-		q!<button type="submit" name="%%IDPREFIX%%WWsubmit" value=1!.qq!  $WWsubmitDisabled> Submit Answer(s) </button> !,
-		q!<button type="submit" name="%%IDPREFIX%%WWcorrectAns" value=1!.qq!  $WWcorrectAnsDisabled> Grade and Finish </button>!,
+		q!<button type="submit" name="%%IDPREFIX%%WWpreview"  value=1!.qq!  $WWpreviewDisabled class="btn btn-primary"> Pr&eacutevisualiser </button> !,	
+		q!<button type="submit" name="%%IDPREFIX%%WWsubmit" value=1!.qq!  $WWsubmitDisabled class="btn btn-primary"> Soumettre </button> !,
+	#	q!<button type="submit" name="%%IDPREFIX%%WWcorrectAns" value=1!.qq!  $WWcorrectAnsDisabled class="btn btn-primary"> Envoyer et Terminer </button>!,
 		'</p>',
 		'</div>',
 	);
