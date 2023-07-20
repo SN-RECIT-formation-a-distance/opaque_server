@@ -78,17 +78,29 @@
 #      </restriction>
 #     </complexContent>
 #    </complexType>
-# 
-#    <complexType name="Results">
-#     <sequence>
-#      <element name="actionSummary" nillable="true" type="soapenc:string"/>
-#      <element name="answerLine" nillable="true" type="soapenc:string"/>
-#      <element name="attempts" type="xsd:int"/>
-#      <element name="customResults" nillable="true" type="impl:ArrayOfCustomResult"/>
-#      <element name="questionLine" nillable="true" type="soapenc:string"/>
-#      <element name="scores" nillable="true" type="impl:ArrayOfScore"/>
-#     </sequence>
-#    </complexType>
+#
+#   <complexType name="Results">
+#    <sequence>
+#     <element name="actionSummary" nillable="true" type="soapenc:string"/>
+#     <element name="answerLine" nillable="true" type="soapenc:string"/>
+#     <element name="attempts" type="xsd:int"/>
+#     <element name="customResults" nillable="true" type="impl:ArrayOfCustomResult"/>
+#     <element name="questionLine" nillable="true" type="soapenc:string"/>
+#     <element name="scores" nillable="true" type="impl:ArrayOfScore"/>
+#    </sequence>
+#   </complexType>
+#
+#   <complexType name="ResultsTMP">
+#    <sequence>
+#     <element name="actionSummary" nillable="true" type="soapenc:string"/>
+#     <element name="answerLine" nillable="true" type="soapenc:string"/>
+#     <element name="attempts" type="xsd:int"/>
+#     <element name="customResults" nillable="true" type="impl:ArrayOfCustomResult"/>
+#     <element name="questionLine" nillable="true" type="soapenc:string"/>
+#     <element name="scores" nillable="true" type="impl:ArrayOfScore"/>
+#     <element name="TRY" type="xsd:int"/>
+#    </sequence>
+#   </complexType>
 # 
 #    <complexType name="ProcessReturn">
 #     <sequence>
@@ -98,6 +110,8 @@
 #      <element name="questionEnd" type="xsd:boolean"/>
 #      <element name="resources" nillable="true" type="impl:ArrayOfResource"/>
 #      <element name="results" nillable="true" type="impl:Results"/>
+#      <element name="resultstmp" nillable="true" type="impl:ResultsTMP"/>
+#      <element name="solfeedback" nillable="true" type="soapenc:string"/>
 #     </sequence>
 #    </complexType>
 # 
@@ -144,12 +158,22 @@
 #    <wsdl:message name="getQuestionMetadataRequest">
 #       <wsdl:part name="questionID" type="soapenc:string"/>
 #       <wsdl:part name="questionVersion" type="soapenc:string"/>
+#       <wsdl:part name="questionHint" type="xsd:int"/>
+#       <wsdl:part name="questionSolution" type="xsd:int"/>
+#       <wsdl:part name="endingquestionSolution" type="xsd:int"/>
+#       <wsdl:part name="maxnumAttempt" type="xsd:int"/>
+#       <wsdl:part name="modeExam" type="xsd:int"/>
 #       <wsdl:part name="questionBaseURL" type="soapenc:string"/>
 #    </wsdl:message>
 # 
 #    <wsdl:message name="startRequest">
 #       <wsdl:part name="questionID" type="soapenc:string"/>
 #       <wsdl:part name="questionVersion" type="soapenc:string"/>
+#       <wsdl:part name="questionHint" type="xsd:int"/>
+#       <wsdl:part name="questionSolution" type="xsd:int"/>
+#       <wsdl:part name="endingquestionSolution" type="xsd:int"/>
+#       <wsdl:part name="maxnumAttempt" type="xsd:int"/>
+#       <wsdl:part name="modeExam" type="xsd:int"/>
 #       <wsdl:part name="questionBaseURL" type="soapenc:string"/>
 #       <wsdl:part name="initialParamNames" type="impl:ArrayOf_soapenc_string"/>
 #       <wsdl:part name="initialParamValues" type="impl:ArrayOf_soapenc_string"/>
@@ -158,7 +182,7 @@
 # 
 #    <wsdl:portType name="OmService">
 # 
-#       <wsdl:operation name="start" parameterOrder="questionID questionVersion questionBaseURL initialParamNames initialParamValues cachedResources">
+#       <wsdl:operation name="start" parameterOrder="questionID questionVersion questionHint questionSolution endingquestionSolution maxnumAttempt modeExam questionBaseURL initialParamNames initialParamValues cachedResources">
 #          <wsdl:input message="impl:startRequest" name="startRequest"/>
 #          <wsdl:output message="impl:startResponse" name="startResponse"/>
 #          <wsdl:fault message="impl:OmException" name="OmException"/>
@@ -181,7 +205,7 @@
 #          <wsdl:output message="impl:getEngineInfoResponse" name="getEngineInfoResponse"/>
 #       </wsdl:operation>
 # 
-#       <wsdl:operation name="getQuestionMetadata" parameterOrder="questionID questionVersion questionBaseURL">
+#       <wsdl:operation name="getQuestionMetadata" parameterOrder="questionID questionVersion questionHint questionSolution endingquestionSolution maxnumAttempt modeExam questionBaseURL">
 #          <wsdl:input message="impl:getQuestionMetadataRequest" name="getQuestionMetadataRequest"/>
 #          <wsdl:output message="impl:getQuestionMetadataResponse" name="getQuestionMetadataResponse"/>
 #          <wsdl:fault message="impl:OmException" name="OmException"/>

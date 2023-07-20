@@ -11,7 +11,7 @@ package OpaqueServer::StartReturn;
 =cut
 sub new {
     my $class = shift;
-    my ($questionid, $version, $readonly)= @_;
+    my ($questionid, $version, $questionhint, $questionsolution, $endingquestionsolution, $maxnumattempt, $modeexam, $readonly)= @_;
     $self = {};
     $self->{questionSession}       	= "";
     $self->{XHTML}     				= "";
